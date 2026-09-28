@@ -1,4 +1,5 @@
 [workspace]
+exclude = ["vendor/davey", "vendor/hpke-rs", "vendor/openmls_rust_crypto"]
 resolver = "3"
 members = ["crates/discord-core", "crates/discord-session", "crates/discord-media"]
 

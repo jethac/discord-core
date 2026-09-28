@@ -1,8 +1,9 @@
 # discord-session
 
-Discord session and call signaling (initial scaffold).
+Authenticated REST, main Gateway, call signaling and connection lifecycle.
 
-This crate currently establishes a workspace boundary only. It provides no
-working network connection, call, codec, or device implementation.
+Initial implementation with an unstable API. Live Discord interoperability is
+unverified. See the [workspace README](https://github.com/jethac/discord-core)
+for usage, ownership contracts, dependencies and validation limits.
 
-License: MIT OR Apache-2.0. See the repository root for both license texts.
+License: MIT OR Apache-2.0; vendored dependencies retain their own licenses.

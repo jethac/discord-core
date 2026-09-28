@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Headless Rust client facade for Discord calling (initial scaffold)"
+description = "Headless Rust client facade for Discord calling"
 readme = "README.md"
 # Enable publication when a usable implementation and API are ready.
 publish = false
@@ -15,3 +15,18 @@ workspace = true
 [dependencies]
 discord-session = { path = "../discord-session", version = "0.1.0" }
 discord-media = { path = "../discord-media", version = "0.1.0" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+
+[features]
+default = []
+devices = ["dep:call-media", "discord-media/native-video", "tokio/signal"]
+
+[dependencies.call-media]
+git = "https://github.com/jethac/call-media"
+rev = "0dbee84bb27dba12badb02e87540808cddfd0c5a"
+features = ["audio", "video"]
+optional = true
+
+[[example]]
+name = "call"
+required-features = ["devices"]
