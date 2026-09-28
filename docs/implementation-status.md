@@ -21,7 +21,7 @@ The latest local all-feature run recorded:
 
 - `discord-core`: 3 passing checks (queue bounds, worker cancellation and stale updates).
 - `discord-media`: 43 passing checks, 2 ignored performance benchmarks.
-- `discord-session`: 8 passing checks, including partial updates and stream deletion fencing.
+- `discord-session`: 11 passing checks, including partial updates and stream deletion fencing.
 - Companion `call-media`: 30 passing checks, including SPS coded/cropped bounds and synthetic codec roundtrips.
 
 The transport checks include a loopback WebSocket/UDP voice service, DAVE
@@ -56,3 +56,15 @@ bitstream verifier; broader bitstream and live codec coverage remain outstanding
 Stream allocation emits `Event::StreamState` with `Phase::ConnectingMedia`. `StreamStarted` is emitted on encrypted media readiness,
 not allocation. Applications should use subsequent stream state events when
 showing encryption transitions or waiting for a peer.
+
+## Destination discovery
+
+The REST API exposes `channel`, `user` and explicit `create_dm` alongside private
+channels and guild channel enumeration. Channel routing requires a known guild
+for server voice and one known peer for one-to-one DMs. Destination-change events
+allow consumers to refresh cached display data. Local HTTP fixtures exercise the
+request path, explicit DM recipient body, response IDs and invalid routing data.
+Live normal-user endpoint behavior remains unverified.
+
+Endpoint schemas are based on Discord's [User resource](https://docs.discord.com/developers/resources/user)
+and [Channel resource](https://docs.discord.com/developers/resources/channel).

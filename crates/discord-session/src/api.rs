@@ -56,6 +56,50 @@ impl Api {
         let location: Location = self.get("/gateway").await?;
         crate::gateway::validate_url(&location.url)
     }
+    /// Resolve an incoming-call channel that is absent from the local directory.
+    pub async fn channel(&self, id: Id) -> Result<Channel, Error> {
+        if id.0 == 0 {
+            return Err(Error::Protocol);
+        }
+        let channel: Channel = self.get(&format!("/channels/{id}")).await?;
+        if channel.id != id || channel.recipients.len() > 64 {
+            return Err(Error::Protocol);
+        }
+        Ok(channel)
+    }
+    pub async fn user(&self, id: Id) -> Result<User, Error> {
+        if id.0 == 0 {
+            return Err(Error::Protocol);
+        }
+        let user: User = self.get(&format!("/users/{id}")).await?;
+        if user.id != id {
+            return Err(Error::Protocol);
+        }
+        Ok(user)
+    }
+    /// Explicitly open or retrieve a one-to-one DM. Does not ring or send a message.
+    /// Invoke for a user action; network failures are not automatically retried.
+    pub async fn create_dm(&self, recipient: Id) -> Result<Channel, Error> {
+        if recipient.0 == 0 {
+            return Err(Error::Protocol);
+        }
+        let bytes = self
+            .request(
+                Method::POST,
+                "/users/@me/channels",
+                Some(json!({"recipient_id":recipient})),
+            )
+            .await?;
+        let channel: Channel = serde_json::from_slice(&bytes).map_err(|_| Error::Protocol)?;
+        if channel.kind != 1
+            || channel.guild_id.is_some()
+            || channel.recipients.len() != 1
+            || channel.recipients[0].id != recipient
+        {
+            return Err(Error::Protocol);
+        }
+        Ok(channel)
+    }
     pub async fn private_channels(&self) -> Result<Vec<Channel>, Error> {
         let channels: Vec<Channel> = self.get("/users/@me/channels").await?;
         if channels.len() > 4096 {
@@ -120,6 +164,13 @@ impl Api {
         )
         .await
         .map(|_| ())
+    }
+    async fn throttle(&self, seconds: f64) -> Result<Duration, Error> {
+        let delay = Duration::try_from_secs_f64(seconds).map_err(|_| Error::Protocol)?;
+        let until = Instant::now().checked_add(delay).ok_or(Error::Protocol)?;
+        let mut deadline = self.cooldown.lock().await;
+        *deadline = (*deadline).max(until);
+        Ok(delay)
     }
     async fn get<T: DeserializeOwned>(&self, route: &str) -> Result<T, Error> {
         let bytes = self.request(Method::GET, route, None).await?;
@@ -191,9 +242,7 @@ impl Api {
         if remaining.as_deref() == Some("0")
             && let Some(seconds) = reset.filter(|n| n.is_finite() && *n >= 0.0)
         {
-            let mut deadline = self.cooldown.lock().await;
-            *deadline =
-                (*deadline).max(Instant::now() + Duration::from_secs_f64(seconds.min(3600.0)));
+            self.throttle(seconds).await?;
         }
         match status.as_u16() {
             200..=299 => Ok(bytes),
@@ -205,9 +254,7 @@ impl Api {
                     .as_f64()
                     .filter(|n| n.is_finite() && *n >= 0.0)
                     .ok_or(Error::Protocol)?;
-                let retry_after = Duration::from_secs_f64(seconds.clamp(0.05, 3600.0));
-                let mut deadline = self.cooldown.lock().await;
-                *deadline = (*deadline).max(Instant::now() + retry_after);
+                let retry_after = self.throttle(seconds.max(0.05)).await?;
                 Err(Error::RateLimited { retry_after })
             }
             500..=599 if write => Err(Error::Ambiguous),
@@ -305,5 +352,45 @@ mod tests {
             Err(Error::Capacity)
         ));
         task.await.unwrap();
+    }
+    #[tokio::test]
+    async fn destination_lookups_and_explicit_dm_creation_validate_responses() {
+        let body = r#"{"id":"10","type":1,"recipients":[{"id":"2","username":"peer"}]}"#;
+        let (base, task) = server(format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        ))
+        .await;
+        let channel = api(base).create_dm(Id(2)).await.unwrap();
+        assert_eq!(channel.target().unwrap().peer, Some(Id(2)));
+        let request = task.await.unwrap();
+        assert!(request.starts_with("POST /users/@me/channels HTTP/1.1"));
+        assert!(request.ends_with(r#"{"recipient_id":"2"}"#));
+        let (base, task) = server(format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        ))
+        .await;
+        assert!(matches!(
+            api(base).channel(Id(11)).await,
+            Err(Error::Protocol)
+        ));
+        assert!(task.await.unwrap().starts_with("GET /channels/11 HTTP/1.1"));
+        let api = api("http://127.0.0.1:1".into());
+        assert!(matches!(api.create_dm(Id(0)).await, Err(Error::Protocol)));
+        assert!(matches!(api.user(Id(0)).await, Err(Error::Protocol)));
+    }
+    #[tokio::test]
+    async fn concurrent_rate_limits_never_shorten_the_server_delay() {
+        let api = api("http://127.0.0.1:1".into());
+        assert_eq!(
+            api.throttle(7200.0).await.unwrap(),
+            Duration::from_secs(7200)
+        );
+        let initial = *api.cooldown.lock().await;
+        api.throttle(1.0).await.unwrap();
+        assert_eq!(*api.cooldown.lock().await, initial);
+        assert!(api.throttle(f64::INFINITY).await.is_err());
+        assert!(api.throttle(-1.0).await.is_err());
     }
 }

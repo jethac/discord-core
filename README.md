@@ -28,7 +28,11 @@ dependency. Meet protocol support is future work.
    navigation. Wait for `Event::Signaling(session::Event::Ready { .. })` before
    joining, and continually drain events.
 2. Select a `CallTarget` from REST/channel information. For one-to-one DMs set
-   `peer` to the other user. Use `join`/`answer` for existing calls; `call` rings
+   `peer` to the other user. `Channel::target` rejects incomplete routing data;
+   resolve it with `Api::channel`. `Api::user` resolves participant names and
+   `Api::create_dm` explicitly opens/retrieves a DM without ringing. Refresh
+   displayed destinations on `ChannelChanged`; remove them on `ChannelDeleted`.
+   Use `join`/`answer` for existing calls; `call` rings
    once for a DM/group call. Ring requests are never automatically retried.
 3. Create `media_channels` or supply `MediaIo`. PCM is mono f32, 48 kHz, 960 samples
    per frame. Feed media only when ready; never block device callbacks on queues.

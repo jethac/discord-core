@@ -312,6 +312,25 @@ impl Calls {
         events: &mpsc::Sender<Event>,
     ) -> Result<(), Error> {
         match name {
+            "CHANNEL_CREATE"
+            | "CHANNEL_UPDATE"
+            | "CHANNEL_RECIPIENT_ADD"
+            | "CHANNEL_RECIPIENT_REMOVE" => {
+                let channel = if name.starts_with("CHANNEL_RECIPIENT_") {
+                    id(data, "channel_id")?
+                } else {
+                    id(data, "id")?
+                };
+                emit(events, Event::ChannelChanged { channel })?;
+            }
+            "CHANNEL_DELETE" => {
+                emit(
+                    events,
+                    Event::ChannelDeleted {
+                        channel: id(data, "id")?,
+                    },
+                )?;
+            }
             "VOICE_STATE_UPDATE" => {
                 let participant: Participant =
                     serde_json::from_value(data.clone()).map_err(|_| Error::Protocol)?;

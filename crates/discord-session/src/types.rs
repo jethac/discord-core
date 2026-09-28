@@ -26,15 +26,28 @@ impl Channel {
     pub fn callable(&self) -> bool {
         matches!(self.kind, 1..=3)
     }
+    /// Resolve a call target only when required routing information is present.
+    /// Partial Gateway channel objects can be completed with `Api::channel`.
     pub fn target(&self) -> Option<CallTarget> {
-        self.callable().then(|| CallTarget {
+        if self.id.0 == 0 {
+            return None;
+        }
+        let (guild, peer) = match self.kind {
+            1 if self.guild_id.is_none() && self.recipients.len() == 1 => {
+                let peer = self.recipients[0].id;
+                if peer.0 == 0 {
+                    return None;
+                }
+                (None, Some(peer))
+            }
+            2 => (Some(self.guild_id.filter(|g| g.0 != 0)?), None),
+            3 if self.guild_id.is_none() => (None, None),
+            _ => return None,
+        };
+        Some(CallTarget {
             channel: self.id,
-            guild: self.guild_id,
-            peer: if self.kind == 1 {
-                self.recipients.first().map(|u| u.id)
-            } else {
-                None
-            },
+            guild,
+            peer,
         })
     }
 }
@@ -87,6 +100,13 @@ pub enum Event {
     },
     Resumed,
     Disconnected,
+    /// A destination changed; refresh it with `Api::channel` if displayed.
+    ChannelChanged {
+        channel: Id,
+    },
+    ChannelDeleted {
+        channel: Id,
+    },
     Call {
         channel: Id,
         /// None means this field was omitted from a partial call update.
@@ -114,4 +134,39 @@ pub enum Event {
         key: String,
     },
     Error(Error),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn call_targets_require_complete_routing_information() {
+        let mut channel = Channel {
+            id: Id(10),
+            kind: 2,
+            guild_id: None,
+            name: None,
+            recipients: vec![],
+        };
+        assert!(channel.target().is_none());
+        channel.guild_id = Some(Id(20));
+        assert_eq!(channel.target().unwrap().guild, Some(Id(20)));
+        channel.kind = 1;
+        assert!(channel.target().is_none());
+        channel.guild_id = None;
+        assert!(channel.target().is_none());
+        channel.recipients.push(User {
+            id: Id(2),
+            username: "peer".into(),
+            global_name: None,
+            bot: false,
+        });
+        assert_eq!(channel.target().unwrap().peer, Some(Id(2)));
+        channel.recipients.push(channel.recipients[0].clone());
+        assert!(channel.target().is_none());
+        channel.kind = 3;
+        assert_eq!(channel.target().unwrap().peer, None);
+        channel.kind = 0;
+        assert!(channel.target().is_none());
+    }
 }
