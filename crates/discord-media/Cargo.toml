@@ -1,0 +1,13 @@
+[package]
+name = "discord-media"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Discord voice and video transport (initial scaffold)"
+readme = "README.md"
+# Enable publication when a usable implementation and API are ready.
+publish = false
+
+[lints]
+workspace = true

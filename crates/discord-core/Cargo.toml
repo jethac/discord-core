@@ -1,0 +1,17 @@
+[package]
+name = "discord-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Headless Rust client facade for Discord calling (initial scaffold)"
+readme = "README.md"
+# Enable publication when a usable implementation and API are ready.
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+discord-session = { path = "../discord-session", version = "0.1.0" }
+discord-media = { path = "../discord-media", version = "0.1.0" }
