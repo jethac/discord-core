@@ -10,7 +10,7 @@ This is an implementation checkpoint, not a declaration of live support.
 | Camera send/receive | H.264 packetization, authenticated transport, reassembly and decode | Two-way live camera call with official clients |
 | Watch streams | Stream allocation, encrypted video/audio receive | Live Go Live with official client |
 | Share video/audio | Stream allocation, H.264 send and stereo audio path | Live sharing, congestion, viewer joining/leaving |
-| HDMI | V4L2 sharing source, separate audio receiver | Actual capture card, audio pairing and sync |
+| HDMI | V4L2 sharing source, explicit ALSA/PulseAudio stereo capture | Actual capture card, audio pairing and sync |
 | Device adapters | Optional call-media capture, playback, AEC/noise and codecs | Hub device switching, disconnects, release, echo and latency |
 | Host integration | Headless API, bounded queues, ownership and runnable example | Hub rendering and UI integration by application agent |
 | Delivery | Public repositories, dual licenses and retained dependency notices | Stable API and eventual release after validation |

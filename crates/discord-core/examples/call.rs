@@ -27,6 +27,34 @@ async fn main() -> Result<(), Box<dyn Error>> {
         guild: optional_id("DISCORD_GUILD")?,
         peer: optional_id("DISCORD_PEER")?,
     };
+    #[cfg(target_os = "linux")]
+    let mut share_device = env::var("SHARE_VIDEO_DEVICE")
+        .ok()
+        .map(|s| s.parse::<u32>())
+        .transpose()?;
+    #[cfg(target_os = "linux")]
+    let share_audio_source = match (
+        env::var("SHARE_AUDIO_PULSE").ok(),
+        env::var("SHARE_AUDIO_ALSA").ok(),
+    ) {
+        (Some(_), Some(_)) => return Err("Select only one share audio backend".into()),
+        (Some(name), None) => Some(call_media::share_audio::Source::Pulse(name)),
+        (None, Some(name)) => Some(call_media::share_audio::Source::Alsa(name)),
+        (None, None) => None,
+    };
+    #[cfg(target_os = "linux")]
+    if share_device.is_some_and(|index| index > 65535)
+        || (share_audio_source.is_some() && share_device.is_none())
+    {
+        return Err(
+            "SHARE_VIDEO_DEVICE must be a V4L2 device index for audio/video sharing".into(),
+        );
+    }
+    #[cfg(target_os = "linux")]
+    let mut sharing: Option<(
+        call_media::screen::Worker,
+        Option<call_media::share_audio::Capture>,
+    )> = None;
     let mut client = Client::connect(token).await?;
     tokio::time::timeout(std::time::Duration::from_secs(45), async {
         loop {
@@ -94,8 +122,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
     eprintln!(
         "Joining; press Ctrl-C to leave. Incoming video is decoded and discarded by this example."
     );
+    let mut devices = tokio::time::interval(std::time::Duration::from_millis(100));
     loop {
         tokio::select! {
+            _ = devices.tick() => {
+                if let Some(error) = camera.as_ref().and_then(|c|c.error()) {
+                    eprintln!("Camera: {error}"); break;
+                }
+                #[cfg(target_os = "linux")]
+                if let Some((video, audio)) = sharing.as_mut()
+                    && let Some(result) = video.result().or_else(||audio.as_mut().and_then(|a|a.result())) {
+                    eprintln!("Share capture ended: {result:?}"); break;
+                }
+            }
             result = tokio::signal::ctrl_c() => { result?; break; }
             changed = state.changed() => {
                 if changed.is_err() { break; }
@@ -104,6 +143,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 audio.set_controls(state.controls.muted || state.server_muted, state.controls.deafened || state.server_deafened);
                 eprintln!("Call: {:?}", state.phase);
                 if matches!(state.phase, Phase::Failed | Phase::Idle) { break; }
+                #[cfg(target_os = "linux")]
+                if state.phase == Phase::Connected && let Some(index) = share_device.take() {
+                    let (worker, mut video) = call_media::screen::Worker::start(call_media::screen::Settings {
+                        source: call_media::screen::SourceId::VideoDevice(index), width: 1280, height: 720,
+                        fps: 30, cursor: false, audio: false,
+                    }, || {})?;
+                    let capture = share_audio_source.clone().map(|source| call_media::share_audio::Capture::attach(&mut video, source)).transpose()?;
+                    sharing = Some((worker, capture));
+                    handle.share(video).await?;
+                }
             }
             event = client.next_event() => {
                 match event {
@@ -115,6 +164,25 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     }
     drop(camera);
+    #[cfg(target_os = "linux")]
+    if let Some((video, audio)) = sharing.take() {
+        let video = video.shutdown();
+        let audio = audio.and_then(|a| a.shutdown());
+        tokio::task::spawn_blocking(move || {
+            if let result @ (Err(_) | Ok(Err(_))) =
+                video.recv_timeout(std::time::Duration::from_secs(5))
+            {
+                eprintln!("Video capture shutdown: {result:?}");
+            }
+            if let Some(audio) = audio
+                && let result @ (Err(_) | Ok(Err(_))) =
+                    audio.recv_timeout(std::time::Duration::from_secs(5))
+            {
+                eprintln!("Share audio shutdown: {result:?}");
+            }
+        })
+        .await?;
+    }
     let done = audio.shutdown();
     let result = client.close().await;
     tokio::task::spawn_blocking(move || done.recv_timeout(std::time::Duration::from_secs(5)))

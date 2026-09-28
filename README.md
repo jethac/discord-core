@@ -58,7 +58,11 @@ and optionally `DISCORD_GUILD`/`DISCORD_PEER`. `AUDIO_INPUT`, `AUDIO_OUTPUT`, an
 `CAMERA_DEVICE` accept the IDs returned by call-media device enumeration. Camera
 capture is enabled only when `CAMERA_DEVICE` is set. The example joins without
 ringing, plays received audio, decodes/discards incoming video, and leaves on
-Ctrl-C. It does not provide login or a renderer. Do not paste credentials into
+Ctrl-C. On Linux, `SHARE_VIDEO_DEVICE=3` additionally shares `/dev/video3` at
+720p/30 fps once connected. Select capture-card audio explicitly with either
+`SHARE_AUDIO_PULSE` (Pulse source name) or `SHARE_AUDIO_ALSA` (ALSA PCM name).
+This can run alongside the call camera and microphone. It does not provide login
+or a renderer. Do not paste credentials into
 issues or logs.
 
 ## Limits and remaining work
@@ -70,8 +74,8 @@ issues or logs.
   and speaker mixing are bounded to 64 participants.
 - Camera negotiation is currently H.264 640x480/15 fps; sharing supports selected
   resolutions through 1080p. Unsupported remote codecs are not decoded.
-- HDMI video uses an explicit Linux V4L2 node. HDMI audio must be supplied
-  separately; automatic audio-device pairing is not implemented.
+- HDMI video uses an explicit Linux V4L2 node. HDMI audio uses a separately selected ALSA/PulseAudio capture adapter;
+  automatic audio-device pairing is not implemented.
 - Device and protocol coverage on macOS/Windows has not been established.
 - Call lifecycle, device switching, stream replacement and simultaneous
   camera/share behavior still need live end-to-end validation.
