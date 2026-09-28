@@ -535,3 +535,106 @@ fn stream_key(target: CallTarget, user: Id) -> String {
         |g| format!("guild:{g}:{}:{user}", target.channel),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn active() -> Active {
+        let (controls, _) = watch::channel(media::Controls::default());
+        let (stream_audio, stream_playback) = sync::sync_channel(8);
+        Active {
+            request: 9,
+            target: CallTarget {
+                channel: Id(10),
+                guild: None,
+                peer: Some(Id(2)),
+            },
+            io: None,
+            ring: false,
+            camera_serial: 0,
+            controls,
+            identity: media::Identity::generate(),
+            task: None,
+            stream_audio,
+            stream_playback: Some(stream_playback),
+            share_serial: 3,
+            watch_serial: 5,
+            share: None,
+            share_key: Some("call:10:1".into()),
+            share_task: None,
+            watch: None,
+            watch_key: Some("call:10:2".into()),
+            watch_task: None,
+        }
+    }
+    #[tokio::test]
+    async fn queued_updates_cannot_revive_cancelled_or_replaced_streams() {
+        let mut call = active();
+        assert!(!call.accepts(9, Kind::Share(3))); // A reserved key is not a running worker.
+        call.share_task = Some(Task(tokio::spawn(std::future::pending())));
+        call.watch_task = Some(Task(tokio::spawn(std::future::pending())));
+        assert!(call.accepts(9, Kind::Share(3)));
+        assert!(call.accepts(9, Kind::Watch(5)));
+        assert!(!call.accepts(8, Kind::Share(3)));
+        assert!(!call.accepts(9, Kind::Share(2)));
+        assert!(!call.accepts(9, Kind::Watch(4)));
+        call.share_task = None;
+        assert!(!call.accepts(9, Kind::Share(3)));
+        call.share_serial += 1;
+        call.share_task = Some(Task(tokio::spawn(std::future::pending())));
+        assert!(!call.accepts(9, Kind::Share(3)));
+        assert!(call.accepts(9, Kind::Share(4)));
+    }
+    #[tokio::test]
+    async fn dropping_task_cancels_owned_work() {
+        struct Notify(Option<oneshot::Sender<()>>);
+        impl Drop for Notify {
+            fn drop(&mut self) {
+                let _ = self.0.take().unwrap().send(());
+            }
+        }
+        let (started, start) = oneshot::channel();
+        let (stopped, stop) = oneshot::channel();
+        let task = Task(tokio::spawn(async move {
+            let _notify = Notify(Some(stopped));
+            started.send(()).unwrap();
+            std::future::pending::<()>().await;
+        }));
+        start.await.unwrap();
+        drop(task);
+        tokio::time::timeout(Duration::from_secs(1), stop)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+    #[test]
+    fn application_media_queues_remain_bounded() {
+        let (channels, _io) = media_channels(None);
+        for _ in 0..8 {
+            channels.microphone.try_send([0.0; 960]).unwrap();
+        }
+        assert!(matches!(
+            channels.microphone.try_send([0.0; 960]),
+            Err(sync::TrySendError::Full(_))
+        ));
+        for _ in 0..2 {
+            channels
+                .camera
+                .try_send(media::camera_video::Frame {
+                    generation: 1,
+                    timestamp: 0,
+                    data: vec![],
+                })
+                .ok()
+                .unwrap();
+        }
+        assert!(matches!(
+            channels.camera.try_send(media::camera_video::Frame {
+                generation: 1,
+                timestamp: 0,
+                data: vec![]
+            }),
+            Err(sync::TrySendError::Full(_))
+        ));
+    }
+}

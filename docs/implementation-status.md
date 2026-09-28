@@ -17,16 +17,23 @@ This is an implementation checkpoint, not a declaration of live support.
 
 ## Recorded local checks
 
-Before the latest lifecycle changes, the local media suite recorded 43 passing
-checks and two ignored performance benchmarks; session checks recorded seven
-passes; call-media recorded 28 passes. These included a loopback WebSocket/UDP
-voice service, DAVE transitions, Opus, H.264 stream send/receive, synthetic codec
-roundtrips and audio processing. They did not contact Discord or use Hub devices.
+The latest local all-feature run recorded:
 
-The subsequent stream-generation, server-restriction and server-withdrawal
-changes have build/static analysis evidence only at this checkpoint. Regression
-coverage and live exercises are still needed. Do not treat the older suite
-results as verification of those changes.
+- `discord-core`: 3 passing checks (queue bounds, worker cancellation and stale updates).
+- `discord-media`: 43 passing checks, 2 ignored performance benchmarks.
+- `discord-session`: 8 passing checks, including partial updates and stream deletion fencing.
+- Companion `call-media`: 30 passing checks, including SPS coded/cropped bounds and synthetic codec roundtrips.
+
+The transport checks include a loopback WebSocket/UDP voice service, DAVE
+transitions, Opus, and encrypted H.264 stream send/receive. They did not contact
+Discord or use Hub devices. Native hardware-dependent checks may return early
+when a backend is unavailable; a passing suite is not proof of hardware coverage.
+Both repositories now run their all-feature regression suites in CI.
+
+There is still no full facade-to-device live call exercise. The standalone share
+audio adapter needs real-source and encryption-transition exercises, and SPS
+preflight needs broader supported-profile/bitstream coverage beyond its boundary
+cases. Those requirements remain open.
 
 ## Current lifecycle policy
 
@@ -44,7 +51,7 @@ ringing. Automatic media reconnection remains future implementation work.
 All incoming H.264 decoder paths now preflight sequence parameter declarations
 for supported profiles/chroma/depth, coded surface dimensions and cropped output
 bounds before passing bytes to a native decoder. The preflight is not a complete
-bitstream verifier; regression and live codec coverage remain outstanding.
+bitstream verifier; broader bitstream and live codec coverage remain outstanding.
 
 Stream allocation emits `Event::StreamState` with `Phase::ConnectingMedia`. `StreamStarted` is emitted on encrypted media readiness,
 not allocation. Applications should use subsequent stream state events when

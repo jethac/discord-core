@@ -806,6 +806,61 @@ mod tests {
         assert_eq!(connection.channel, Id(41));
         let (packet, _, _) = calls.packet(Command::StopStream(key), Id(1)).unwrap();
         assert_eq!(packet.unwrap()["op"], 19);
+        assert!(matches!(
+            calls.packet(Command::WatchStream(Id(2)), Id(1)),
+            Err(Error::Busy)
+        ));
+        // Late allocation must not revive the cancelled stream.
+        calls.dispatch("STREAM_SERVER_UPDATE",&json!({"stream_key":"call:10:2","endpoint":"voice.discord.media","token":"late-token"}),Id(1),&send).unwrap();
+        calls
+            .dispatch(
+                "STREAM_CREATE",
+                &json!({"stream_key":"call:10:2","rtc_server_id":"50","rtc_channel_id":"51"}),
+                Id(1),
+                &send,
+            )
+            .unwrap();
+        assert!(receive.try_recv().is_err());
+        calls
+            .dispatch(
+                "STREAM_DELETE",
+                &json!({"stream_key":"call:10:2"}),
+                Id(1),
+                &send,
+            )
+            .unwrap();
+        assert!(matches!(
+            receive.try_recv().unwrap(),
+            Event::StreamEnded { .. }
+        ));
+        assert!(calls.packet(Command::WatchStream(Id(2)), Id(1)).is_ok());
+    }
+    #[test]
+    fn call_updates_distinguish_omitted_fields_from_empty_lists() {
+        let (send, mut receive) = mpsc::channel(4);
+        let mut calls = Calls::default();
+        calls
+            .dispatch(
+                "CALL_UPDATE",
+                &json!({"channel_id":"10","ringing":[]}),
+                Id(1),
+                &send,
+            )
+            .unwrap();
+        assert!(
+            matches!(receive.try_recv().unwrap(),Event::Call{ringing:Some(ringing),participants:None,..}if ringing.is_empty())
+        );
+        calls
+            .dispatch(
+                "CALL_UPDATE",
+                &json!({"channel_id":"10","voice_states":[]}),
+                Id(1),
+                &send,
+            )
+            .unwrap();
+        assert!(
+            matches!(receive.try_recv().unwrap(),Event::Call{ringing:None,participants:Some(participants),..}if participants.is_empty())
+        );
     }
     #[test]
     fn gateway_destinations_and_queue_capacity_are_checked() {
