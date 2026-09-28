@@ -22,7 +22,7 @@ The latest local all-feature run recorded:
 - `discord-core`: 3 passing checks (queue bounds, worker cancellation and stale updates).
 - `discord-media`: 43 passing checks, 2 ignored performance benchmarks.
 - `discord-session`: 11 passing checks, including partial updates and stream deletion fencing.
-- Companion `call-media`: 33 passing checks, including SPS coded/cropped bounds and synthetic codec roundtrips.
+- Companion `call-media`: 34 passing checks, including SPS coded/cropped bounds and synthetic codec roundtrips.
 
 The transport checks include a loopback WebSocket/UDP voice service, DAVE
 transitions, Opus, and encrypted H.264 stream send/receive. They did not contact
@@ -34,8 +34,10 @@ There is still no full facade-to-device live call exercise. The standalone share
 audio adapter has now been exercised through real GStreamer pipelines using
 generated PCM: readiness gating, epoch changes, delayed pre-transition buffers,
 bounded delivery, end-of-stream errors and native shutdown. Physical capture-card
-source behavior still needs validation. SPS preflight needs broader supported-
-profile/bitstream coverage beyond its boundary cases. Those requirements remain open.
+source behavior still needs validation. Baseline, main and high-profile fixtures encoded independently with FFmpeg/libx264
+now pass SPS preflight and decode to expected pixels. More complex streams and
+live negotiation remain unverified. The remaining practical checks are listed in
+[live-validation.md](live-validation.md).
 
 ## Current lifecycle policy
 

@@ -30,3 +30,7 @@ optional = true
 [[example]]
 name = "call"
 required-features = ["devices"]
+
+[[example]]
+name = "devices"
+required-features = ["devices"]

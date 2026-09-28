@@ -53,6 +53,8 @@ in [call-media's README](https://github.com/jethac/call-media#native-dependencie
 
 ### Headless example
 
+List device IDs with `cargo run -p discord-core --example devices --features devices`.
+
 ```sh
 cargo run -p discord-core --example call --features devices
 ```
@@ -84,7 +86,8 @@ issues or logs.
 - Call lifecycle, device switching, stream replacement and simultaneous
   camera/share behavior still need live end-to-end validation.
 
-See [implementation status](docs/implementation-status.md) for evidence and
+See [live validation](docs/live-validation.md) for the remaining practical checks
+and [implementation status](docs/implementation-status.md) for evidence and
 [THIRD_PARTY.md](THIRD_PARTY.md) for attribution. Transport code is adapted from
 Serein; its upstream documentation also marks live interoperability unverified.
 The vendored DAVE/OpenMLS/HPKE dependency chain uses explicit paths so Git
