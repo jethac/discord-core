@@ -78,7 +78,13 @@ pub enum Event {
     Signaling(session::Event),
     Speaking(Vec<Id>),
     CameraAvailable(bool),
+    /// A stream has reached encrypted media readiness.
     StreamStarted(String),
+    /// Stream transport progress; allocation alone is not usable media.
+    StreamState {
+        key: String,
+        phase: Phase,
+    },
     StreamStopped(String),
     Failure(String),
 }
@@ -456,7 +462,7 @@ async fn controller(
                                 let _=send.send(Update::End(number,kind,result)).await;
                             })));
                         }else{continue}
-                        if !event(&events,Event::StreamStarted(key)){break}
+                        if !event(&events,Event::StreamState{key,phase:Phase::ConnectingMedia}){break}
                     }
                     session::Event::StreamEnded{key}=>{
                         if let Some(call)=active.as_mut(){
@@ -482,7 +488,21 @@ async fn controller(
                 match update{
                     Update::Status(number,kind,status)=>{
                         if active.as_ref().is_none_or(|a|!a.accepts(number,kind)){continue}
-                        if !matches!(kind,Kind::Call){continue}
+                        if !matches!(kind,Kind::Call){
+                            let call=active.as_ref().expect("update matched active call");
+                            let key=match kind {Kind::Share(_)=>call.share_key.clone(),Kind::Watch(_)=>call.watch_key.clone(),Kind::Call=>None};
+                            let Some(key)=key else{continue};
+                            let phase=match status {
+                                media::Status::Connecting|media::Status::Discovering|media::Status::TransportReady=>Phase::ConnectingMedia,
+                                media::Status::Securing=>Phase::Securing,
+                                media::Status::WaitingForPeer=>Phase::WaitingForPeer,
+                                media::Status::Ready{..}=>Phase::Connected,
+                                _=>continue,
+                            };
+                            if phase==Phase::Connected&&!event(&events,Event::StreamStarted(key.clone())){break}
+                            if !event(&events,Event::StreamState{key,phase}){break}
+                            continue
+                        }
                         match status{
                             media::Status::Connecting|media::Status::Discovering|media::Status::TransportReady=>state.send_modify(|s|s.phase=Phase::ConnectingMedia),
                             media::Status::Securing=>state.send_modify(|s|{s.phase=Phase::Securing;s.privacy_code=None;}),

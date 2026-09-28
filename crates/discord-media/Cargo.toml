@@ -16,7 +16,7 @@ workspace = true
 
 [dependencies]
 discord-session = { path = "../discord-session", version = "0.1.0" }
-call-media = { git = "https://github.com/jethac/call-media", rev = "e2bd86c65fe289278bad3cb19da7ed206110d1d2" }
+call-media = { git = "https://github.com/jethac/call-media", rev = "840e73046585a7165f7fc7a5d848df56675b3b90" }
 tokio = { version = "1.50", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util", "fs"] }
 tokio-tungstenite = { version = "=0.30.0", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }

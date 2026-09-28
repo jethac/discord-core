@@ -598,6 +598,7 @@ impl Backend {
     /// Feed one access unit. Software pictures are returned; hardware ones were already
     /// delivered to the sink. `scratch` is reused so no frame-sized buffer is zeroed per frame.
     fn decode(&mut self, data: &[u8], scratch: &mut Vec<u8>) -> Result<Option<(u32, u32)>, ()> {
+        call_media::h264::validate_decode(data).map_err(|_| ())?;
         match self {
             #[cfg(all(feature = "native-video", target_os = "linux"))]
             Self::Hardware(decoder) => decoder.decode(data).map(|()| None).map_err(|_| ()),

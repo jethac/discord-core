@@ -38,3 +38,14 @@ Camera generations invalidate buffered frames after camera toggles. Gateway
 disconnect and server withdrawal stop local media; an explicit join is needed
 once ready. This favors a visible recoverable error over unintended repeated
 ringing. Automatic media reconnection remains future implementation work.
+
+## Decoder preflight and stream readiness
+
+All incoming H.264 decoder paths now preflight sequence parameter declarations
+for supported profiles/chroma/depth, coded surface dimensions and cropped output
+bounds before passing bytes to a native decoder. The preflight is not a complete
+bitstream verifier; regression and live codec coverage remain outstanding.
+
+Stream allocation emits `Event::StreamState` with `Phase::ConnectingMedia`. `StreamStarted` is emitted on encrypted media readiness,
+not allocation. Applications should use subsequent stream state events when
+showing encryption transitions or waiting for a peer.
