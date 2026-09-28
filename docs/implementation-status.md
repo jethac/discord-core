@@ -22,7 +22,7 @@ The latest local all-feature run recorded:
 - `discord-core`: 3 passing checks (queue bounds, worker cancellation and stale updates).
 - `discord-media`: 43 passing checks, 2 ignored performance benchmarks.
 - `discord-session`: 11 passing checks, including partial updates and stream deletion fencing.
-- Companion `call-media`: 30 passing checks, including SPS coded/cropped bounds and synthetic codec roundtrips.
+- Companion `call-media`: 33 passing checks, including SPS coded/cropped bounds and synthetic codec roundtrips.
 
 The transport checks include a loopback WebSocket/UDP voice service, DAVE
 transitions, Opus, and encrypted H.264 stream send/receive. They did not contact
@@ -31,9 +31,11 @@ when a backend is unavailable; a passing suite is not proof of hardware coverage
 Both repositories now run their all-feature regression suites in CI.
 
 There is still no full facade-to-device live call exercise. The standalone share
-audio adapter needs real-source and encryption-transition exercises, and SPS
-preflight needs broader supported-profile/bitstream coverage beyond its boundary
-cases. Those requirements remain open.
+audio adapter has now been exercised through real GStreamer pipelines using
+generated PCM: readiness gating, epoch changes, delayed pre-transition buffers,
+bounded delivery, end-of-stream errors and native shutdown. Physical capture-card
+source behavior still needs validation. SPS preflight needs broader supported-
+profile/bitstream coverage beyond its boundary cases. Those requirements remain open.
 
 ## Current lifecycle policy
 

@@ -263,7 +263,7 @@ checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 [[package]]
 name = "call-media"
 version = "0.1.0"
-source = "git+https://github.com/jethac/call-media?rev=840e73046585a7165f7fc7a5d848df56675b3b90#840e73046585a7165f7fc7a5d848df56675b3b90"
+source = "git+https://github.com/jethac/call-media?rev=1a845e0ad30ced90c6b3baadc2cb5e1d5e2de736#1a845e0ad30ced90c6b3baadc2cb5e1d5e2de736"
 dependencies = [
  "block2",
  "cpal",

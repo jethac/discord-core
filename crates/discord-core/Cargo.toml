@@ -23,7 +23,7 @@ devices = ["dep:call-media", "discord-media/native-video", "tokio/signal"]
 
 [dependencies.call-media]
 git = "https://github.com/jethac/call-media"
-rev = "840e73046585a7165f7fc7a5d848df56675b3b90"
+rev = "1a845e0ad30ced90c6b3baadc2cb5e1d5e2de736"
 features = ["audio", "video"]
 optional = true
 
