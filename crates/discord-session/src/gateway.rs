@@ -176,6 +176,8 @@ struct Active {
 struct Stream {
     created: Option<(Id, Id)>,
     server: Option<(Secret, String)>,
+    stopping: bool,
+    deadline: Option<Instant>,
 }
 #[derive(Default)]
 struct Calls {
@@ -268,7 +270,13 @@ impl Calls {
                 if self.streams.contains_key(&key) || self.streams.len() >= 2 {
                     return Err(Error::Busy);
                 }
-                self.streams.insert(key.clone(), Stream::default());
+                self.streams.insert(
+                    key.clone(),
+                    Stream {
+                        deadline: Some(Instant::now() + Duration::from_secs(20)),
+                        ..Default::default()
+                    },
+                );
                 let packet = if matches!(command, Command::StartStream) {
                     json!({"op":18,"d":{"type":if active.target.guild.is_some(){"guild"}else{"call"},"guild_id":active.target.guild,"channel_id":active.target.channel,"preferred_region":null}})
                 } else {
@@ -277,9 +285,17 @@ impl Calls {
                 Ok((Some(packet), active.request, false))
             }
             Command::StopStream(key) => {
-                if self.streams.remove(&key).is_none() {
-                    return Err(Error::NotReady);
+                let stream = self.streams.get_mut(&key).ok_or(Error::NotReady)?;
+                if stream.stopping {
+                    return Err(Error::Busy);
                 }
+                // Keep the key reserved until STREAM_DELETE acknowledges departure.
+                // Allocation events carry no client generation, so removing it now
+                // could attach old credentials to a replacement using the same key.
+                stream.stopping = true;
+                stream.created = None;
+                stream.server = None;
+                stream.deadline = Some(Instant::now() + Duration::from_secs(10));
                 Ok((
                     Some(json!({"op":19,"d":{"stream_key":key}})),
                     self.next,
@@ -354,15 +370,15 @@ impl Calls {
                     .get("ringing")
                     .map(|v| serde_json::from_value::<Vec<Id>>(v.clone()))
                     .transpose()
-                    .map_err(|_| Error::Protocol)?
-                    .unwrap_or_default();
+                    .map_err(|_| Error::Protocol)?;
                 let participants = data
                     .get("voice_states")
                     .map(|v| serde_json::from_value::<Vec<Participant>>(v.clone()))
                     .transpose()
-                    .map_err(|_| Error::Protocol)?
-                    .unwrap_or_default();
-                if ringing.len() > 64 || participants.len() > 64 {
+                    .map_err(|_| Error::Protocol)?;
+                if ringing.as_ref().is_some_and(|r| r.len() > 64)
+                    || participants.as_ref().is_some_and(|p| p.len() > 64)
+                {
                     return Err(Error::Capacity);
                 }
                 emit(
@@ -388,7 +404,7 @@ impl Calls {
                     if self.streams.remove(&key).is_some() {
                         emit(events, Event::StreamEnded { key })?;
                     }
-                } else if let Some(stream) = self.streams.get_mut(&key) {
+                } else if let Some(stream) = self.streams.get_mut(&key).filter(|s| !s.stopping) {
                     if name == "STREAM_CREATE" {
                         stream.created =
                             Some((id(data, "rtc_server_id")?, id(data, "rtc_channel_id")?));
@@ -403,6 +419,7 @@ impl Calls {
                             .as_ref()
                             .filter(|a| a.session.is_some() && !a.leaving)
                     {
+                        stream.deadline = None;
                         let (guild, channel) = stream.created.take().ok_or(Error::Protocol)?;
                         let (token, endpoint) = stream.server.take().ok_or(Error::Protocol)?;
                         emit(
@@ -597,7 +614,8 @@ async fn run(
             tokio::select! {
                 _=guard.tick()=>{
                     if !ready && Instant::now()>readiness {break}
-                    if calls.active.as_ref().is_some_and(|a|a.deadline.is_some_and(|deadline|Instant::now()>deadline)) {
+                    if calls.active.as_ref().is_some_and(|a|a.deadline.is_some_and(|deadline|Instant::now()>deadline))
+                        || calls.streams.values().any(|s|s.deadline.is_some_and(|deadline|Instant::now()>deadline)) {
                         emit(&events,Event::Error(Error::Timeout))?;
                         break;
                     }
@@ -624,7 +642,7 @@ async fn run(
                     let Some(Ok(frame))=frame else{break};
                     let packet:Value=match frame {
                         Message::Text(text)=>serde_json::from_str(&text).map_err(|_|Error::Protocol)?,
-                        Message::Ping(bytes)=>{if ws.send(Message::Pong(bytes)).await.is_err(){break}continue},
+                        Message::Ping(bytes)=>{if timeout(Duration::from_secs(10),ws.send(Message::Pong(bytes))).await.map_or(true,|r|r.is_err()){break}continue},
                         Message::Pong(_)=>continue,
                         Message::Close(close)=>{
                             if let Some(close)=close {
@@ -639,7 +657,7 @@ async fn run(
                     if let Some(seq)=packet["s"].as_u64(){sequence=Some(seq)}
                     match packet["op"].as_u64().ok_or(Error::Protocol)? {
                         11=>awaiting=false,
-                        1=>{if ws.send(Message::Text(json!({"op":1,"d":sequence}).to_string().into())).await.is_err(){break}awaiting=true;},
+                        1=>{if timeout(Duration::from_secs(10),ws.send(Message::Text(json!({"op":1,"d":sequence}).to_string().into()))).await.map_or(true,|r|r.is_err()){break}awaiting=true;},
                         7=>break,
                         9=>{if packet["d"]!=true {session=None;sequence=None;resume_url=initial_url.clone();}break},
                         0=>{
@@ -666,7 +684,7 @@ async fn run(
                             else if ready {calls.dispatch(name,data,owner.id,&events)?;}
                             if ready
                                 && let Some(guild)=departure.take()
-                                    && ws.send(Message::Text(voice_packet(None,guild,Controls{muted:true,deafened:true,camera:false}).to_string().into())).await.is_err(){break}
+                                    && timeout(Duration::from_secs(10),ws.send(Message::Text(voice_packet(None,guild,Controls{muted:true,deafened:true,camera:false}).to_string().into()))).await.map_or(true,|r|r.is_err()){break}
                         }
                         _=>{},
                     }

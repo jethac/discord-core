@@ -276,8 +276,8 @@ impl Active {
         self.request == request
             && match kind {
                 Kind::Call => self.task.is_some(),
-                Kind::Share(serial) => self.share_key.is_some() && self.share_serial == serial,
-                Kind::Watch(serial) => self.watch_key.is_some() && self.watch_serial == serial,
+                Kind::Share(serial) => self.share_task.is_some() && self.share_serial == serial,
+                Kind::Watch(serial) => self.watch_task.is_some() && self.watch_serial == serial,
             }
     }
 }
@@ -360,27 +360,27 @@ async fn controller(
                         }else{Err(Error::NotReady)}
                     }
                     Command::Share(video)=>{
-                        if let Some(active)=active.as_mut().filter(|a|a.task.is_some()){
+                        if let Some(active)=active.as_mut().filter(|a|a.task.is_some()&&state.borrow().phase==Phase::Connected){
                             if active.share.is_some()||active.share_key.is_some(){Err(Error::Busy)}else{
                                 match handle.start_stream().await{Ok(())=>{active.share_serial+=1;active.share_key=Some(stream_key(active.target,handle.user_id()));active.share=Some(video);Ok(())},Err(e)=>Err(e)}
                             }
                         }else{Err(Error::NotReady)}
                     }
                     Command::Watch{user,sink}=>{
-                        if let Some(active)=active.as_mut().filter(|a|a.task.is_some()){
-                            if active.watch.is_some(){Err(Error::Busy)}else{match handle.watch_stream(user).await{Ok(())=>{active.watch_serial+=1;active.watch_key=Some(stream_key(active.target,user));active.watch=Some((user,sink));Ok(())},Err(e)=>Err(e)}}
+                        if let Some(active)=active.as_mut().filter(|a|a.task.is_some()&&state.borrow().phase==Phase::Connected){
+                            if active.watch.is_some()||active.watch_key.is_some(){Err(Error::Busy)}else{match handle.watch_stream(user).await{Ok(())=>{active.watch_serial+=1;active.watch_key=Some(stream_key(active.target,user));active.watch=Some((user,sink));Ok(())},Err(e)=>Err(e)}}
                         }else{Err(Error::NotReady)}
                     }
                     Command::StopSharing=>{
                         if let Some(active)=active.as_mut(){
                             active.share=None;active.share_task=None;
-                            if let Some(key)=active.share_key.take(){handle.stop_stream(key).await}else{Err(Error::NotReady)}
+                            if let Some(key)=active.share_key.clone(){handle.stop_stream(key).await}else{Err(Error::NotReady)}
                         }else{Err(Error::NotReady)}
                     }
                     Command::StopWatching=>{
                         if let Some(active)=active.as_mut(){
                             active.watch=None;active.watch_task=None;
-                            if let Some(key)=active.watch_key.take(){handle.stop_stream(key).await}else{Err(Error::NotReady)}
+                            if let Some(key)=active.watch_key.clone(){handle.stop_stream(key).await}else{Err(Error::NotReady)}
                         }else{Err(Error::NotReady)}
                     }
                     Command::Shutdown=>{
@@ -399,15 +399,18 @@ async fn controller(
                         let Some(io)=call.io.take()else{
                             active=None;fail(&state,&events,"Voice server changed; rejoin the call".into());let _=handle.leave().await;continue
                         };
-                        if call.ring {
-                            call.ring=false;
-                            if let Err(error)=handle.api().ring(call.target.channel,None).await{
-                                active=None;fail(&state,&events,error.to_string());let _=handle.leave().await;continue
-                            }
-                        }
+                        let ring=std::mem::take(&mut call.ring);
+                        let api=handle.api().clone();let channel=call.target.channel;
                         let send=updates.clone();let number=call.request;let identity=call.identity.clone();let controls=call.controls.subscribe();let stream_audio=call.stream_playback.take();
                         call.task=Some(Task(tokio::spawn(async move{
-                            let result=media::run_with_identity(connection,io.capture,io.playback,controls,io.camera,io.remote_video,stream_audio,status_sink(send.clone(),number,Kind::Call),identity).await;
+                            // REST can take seconds. Keep it cancellable with this call
+                            // so leave/mute commands do not wait behind a ring request.
+                            let result=async {
+                                if ring {
+                                    api.ring(channel,None).await.map_err(|_|"Ring request failed; it may already have reached Discord")?;
+                                }
+                                media::run_with_identity(connection,io.capture,io.playback,controls,io.camera,io.remote_video,stream_audio,status_sink(send.clone(),number,Kind::Call),identity).await
+                            }.await;
                             let _=send.send(Update::End(number,Kind::Call,result)).await;
                         })));
                         state.send_modify(|s|s.phase=Phase::ConnectingMedia);
@@ -452,7 +455,7 @@ async fn controller(
                                 let result=media::watch_stream(connection,identity,sink,Some(audio),status_sink(send.clone(),number,kind)).await;
                                 let _=send.send(Update::End(number,kind,result)).await;
                             })));
-                        }
+                        }else{continue}
                         if !event(&events,Event::StreamStarted(key)){break}
                     }
                     session::Event::StreamEnded{key}=>{
@@ -494,8 +497,8 @@ async fn controller(
                         let Some(call)=active.as_mut().filter(|a|a.accepts(number,kind))else{continue};
                         match kind{
                             Kind::Call=>{active=None;fail(&state,&events,result.err().unwrap_or("Call transport closed").into());let _=handle.leave().await;},
-                            Kind::Share(_)=>{call.share_task=None;call.share=None;if let Some(key)=call.share_key.take(){let _=handle.stop_stream(key.clone()).await;let _=event(&events,Event::StreamStopped(key));}},
-                            Kind::Watch(_)=>{call.watch_task=None;call.watch=None;if let Some(key)=call.watch_key.take(){let _=handle.stop_stream(key.clone()).await;let _=event(&events,Event::StreamStopped(key));}},
+                            Kind::Share(_)=>{call.share_task=None;call.share=None;if let Some(key)=call.share_key.clone(){let _=handle.stop_stream(key).await;}},
+                            Kind::Watch(_)=>{call.watch_task=None;call.watch=None;if let Some(key)=call.watch_key.clone(){let _=handle.stop_stream(key).await;}},
                         }
                         if let Err(message)=result{let _=event(&events,Event::Failure(message.into()));}
                     }

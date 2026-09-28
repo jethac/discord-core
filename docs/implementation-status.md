@@ -31,6 +31,9 @@ results as verification of those changes.
 ## Current lifecycle policy
 
 Cancelled stream worker updates are matched by call and stream generation.
+Stream keys remain reserved until deletion acknowledgment, with a deadline to
+recover from missing allocation/deletion events. Partial call updates preserve
+omitted membership/ringing fields as `None` instead of reporting empty lists.
 Camera generations invalidate buffered frames after camera toggles. Gateway
 disconnect and server withdrawal stop local media; an explicit join is needed
 once ready. This favors a visible recoverable error over unintended repeated

@@ -89,8 +89,10 @@ pub enum Event {
     Disconnected,
     Call {
         channel: Id,
-        ringing: Vec<Id>,
-        participants: Vec<Participant>,
+        /// None means this field was omitted from a partial call update.
+        ringing: Option<Vec<Id>>,
+        /// None preserves the previous membership; Some(empty) clears it.
+        participants: Option<Vec<Participant>>,
     },
     CallEnded {
         channel: Id,
